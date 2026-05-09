@@ -1,11 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs"
-import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { homedir } from "node:os"
 
-const CONFIG_PATH = join(homedir(), ".config", "opencode", "opencode.json")
-const PLUGIN_PATH = fileURLToPath(import.meta.url)
-const PACKAGE_NAME = "opencode-plugin-snip"
 const DEFAULT_LOG_PATH = join(homedir(), "opencode-llm.log")
 const STATS_PATH = join(homedir(), ".config", "opencode", "snip-stats.json")
 const DEFAULT_MAX_PLUS_PLUS_TOOL_LINES = 40
@@ -17,8 +13,8 @@ const REMOVED_CONTROL_PART_TYPES = new Set(["step-start", "step-finish", "reason
 
 let cachedSystem = null
 
-export default async function SnipServerPlugin() {
-  const settings = resolveSettings(loadConfigOptions())
+export default async function SnipServerPlugin(_input, options) {
+  const settings = resolveSettings(options)
 
   return {
     "experimental.chat.system.transform": async (_input, output) => {
@@ -66,45 +62,6 @@ function resolveSettings(options) {
     toolMaxLines,
     toolMaxChars,
   }
-}
-
-function loadConfigOptions() {
-  try {
-    const raw = readFileSync(CONFIG_PATH, "utf8")
-    const config = JSON.parse(raw)
-    const plugins = Array.isArray(config?.plugin) ? config.plugin : []
-
-    for (const entry of plugins) {
-      if (!Array.isArray(entry) || entry.length < 2) {
-        continue
-      }
-
-      const [spec, pluginOptions] = entry
-      if (!matchesServerPluginSpec(spec)) {
-        continue
-      }
-
-      if (pluginOptions && typeof pluginOptions === "object") {
-        return pluginOptions
-      }
-    }
-  } catch {
-    return undefined
-  }
-
-  return undefined
-}
-
-function matchesServerPluginSpec(spec) {
-  const normalized = normalizePluginSpec(spec)
-  return normalized === normalizePluginSpec(PLUGIN_PATH) || normalized === PACKAGE_NAME
-}
-
-function normalizePluginSpec(spec) {
-  return String(spec || "")
-    .replace(/^file:\/\//, "")
-    .replace(/\\/g, "/")
-    .toLowerCase()
 }
 
 function resolveLogPath(value) {
