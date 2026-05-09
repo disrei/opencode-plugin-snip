@@ -1,6 +1,6 @@
-# opencode-plugin-snip
+# opencode-cashback
 
-`opencode-plugin-snip` is an OpenCode plugin that reduces prompt size before messages are sent to the LLM, then shows the saved-character total live in the TUI.
+`opencode-cashback` is an OpenCode plugin that reduces prompt size before messages are sent to the LLM, then shows the saved-character total live in the TUI.
 
 It is built around one constraint: compression must be deterministic. The same input history should compress the same way every time, so you get smaller prompts without introducing cache-hostile randomness or paying for an extra model pass.
 
@@ -21,8 +21,8 @@ opencode plugin opencode-plugin-snip
 Public package and source:
 
 - npm: `opencode-plugin-snip`
-- GitHub: `https://github.com/disrei/opencode-plugin-snip`
-- Release: `https://github.com/disrei/opencode-plugin-snip/releases/tag/v0.1.0`
+- GitHub: `https://github.com/disrei/opencode-cashback`
+- Release: `https://github.com/disrei/opencode-cashback/releases/tag/v0.1.0`
 
 What you get immediately:
 
@@ -183,7 +183,7 @@ TUI side:
 
 You can also use this package source directly as a local plugin during development.
 
-Replace `/absolute/path/to/opencode-plugin-snip` with your own local checkout path.
+Replace `/absolute/path/to/opencode-cashback` with your own local checkout path.
 
 Example `opencode.json`:
 
@@ -191,7 +191,7 @@ Example `opencode.json`:
 {
   "plugin": [
     [
-      "/absolute/path/to/opencode-plugin-snip/src/server.js",
+      "/absolute/path/to/opencode-cashback/src/server.js",
       {
         "mode": "max",
         "logEnabled": false,
@@ -209,7 +209,7 @@ Example `tui.json`:
 {
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    "/absolute/path/to/opencode-plugin-snip/src/tui.tsx"
+    "/absolute/path/to/opencode-cashback/src/tui.tsx"
   ]
 }
 ```
@@ -224,7 +224,7 @@ Typical steps:
 git init
 git add .
 git commit -m "Initial plugin package"
-gh repo create opencode-plugin-snip --public --source . --remote origin --push
+gh repo create opencode-cashback --public --source . --remote origin --push
 ```
 
 ## Publish to npm
