@@ -4,6 +4,26 @@
 
 It is built around one constraint: compression must be deterministic. The same input history should compress the same way every time, so you get smaller prompts without introducing cache-hostile randomness or paying for an extra model pass.
 
+## Quick start
+
+Install:
+
+```bash
+opencode plugin opencode-plugin-snip
+```
+
+Public package and source:
+
+- npm: `opencode-plugin-snip`
+- GitHub: `https://github.com/disrei/opencode-plugin-snip`
+- Release: `https://github.com/disrei/opencode-plugin-snip/releases/tag/v0.1.0`
+
+What you get immediately:
+
+- Deterministic prompt compression before LLM submission.
+- A live `snip` indicator in the OpenCode TUI.
+- Per-session saved-character tracking that starts from `0.0k` in every new session.
+
 ## Why this plugin stands out
 
 - Deterministic compression. No LLM rewriting step, no probabilistic summarization, no drifting history.
