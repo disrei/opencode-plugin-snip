@@ -27,7 +27,7 @@ export default async function SnipServerPlugin(_input, options) {
         .map((message) => compressMessage(message, settings))
         .filter(Boolean)
 
-      updateSavedCharsStats(originalMessages, compressedMessages, _input?.sessionID)
+      updateSavedCharsStats(originalMessages, compressedMessages, _input?.sessionID || _input?.session_id)
 
       output.messages = compressedMessages
 
