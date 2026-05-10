@@ -1,6 +1,6 @@
 {
   "name": "opencode-plugin-snip",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Deterministic OpenCode message compression with per-session saved-character stats and a TUI indicator.",
   "type": "module",
   "license": "MIT",

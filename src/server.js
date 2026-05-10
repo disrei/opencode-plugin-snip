@@ -27,7 +27,7 @@ export default async function SnipServerPlugin(_input, options) {
         .map((message) => compressMessage(message, settings))
         .filter(Boolean)
 
-      updateSavedCharsStats(originalMessages, compressedMessages)
+      updateSavedCharsStats(originalMessages, compressedMessages, _input?.sessionID)
 
       output.messages = compressedMessages
 
@@ -107,8 +107,8 @@ function normalizeMode(value) {
   return "max"
 }
 
-function updateSavedCharsStats(originalMessages, compressedMessages) {
-  const sessionID = detectSessionID(originalMessages, compressedMessages)
+function updateSavedCharsStats(originalMessages, compressedMessages, hookSessionID) {
+  const sessionID = hookSessionID || detectSessionID(originalMessages, compressedMessages)
   if (!sessionID) {
     return
   }
