@@ -1,11 +1,17 @@
-import { readFileSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { readFileSync, rmSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { homedir } from "node:os"
+import { fileURLToPath } from "node:url"
 
 const DEFAULT_LOG_PATH = join(homedir(), "opencode-llm.log")
 const STATS_PATH = join(homedir(), ".config", "opencode", "snip-stats.json")
+const PLUGIN_META_PATH = join(homedir(), ".local", "state", "opencode", "plugin-meta.json")
+const VERSION_CHECK_PATH = join(homedir(), ".local", "state", "opencode", "snip-version-check.json")
 const DEFAULT_MAX_PLUS_PLUS_TOOL_LINES = 40
 const DEFAULT_MAX_PLUS_PLUS_TOOL_CHARS = 4000
+const PACKAGE_NAME = "opencode-plugin-snip"
+const VERSION_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 
 const REMOVED_CONTROL_PREFIXES = ["[step-start]", "[step-finish]", "[reasoning]"]
 const PROTECTED_BLOCK_TAGS = ["system-reminder"]
@@ -15,6 +21,7 @@ let cachedSystem = null
 
 export default async function SnipServerPlugin(_input, options) {
   const settings = resolveSettings(options)
+  void maybeRefreshLatestCache()
 
   return {
     "experimental.chat.system.transform": async (_input, output) => {
@@ -48,6 +55,32 @@ export default async function SnipServerPlugin(_input, options) {
   }
 }
 
+async function maybeRefreshLatestCache() {
+  try {
+    const meta = loadPluginMeta()
+    if (!hasLatestPluginMetaEntry(meta)) {
+      return
+    }
+
+    const localVersion = loadCurrentVersion()
+    if (!localVersion || !shouldCheckLatest(localVersion)) {
+      return
+    }
+
+    const latestVersion = await fetchLatestVersion()
+    recordVersionCheck(localVersion, latestVersion)
+    if (!latestVersion || compareVersions(latestVersion, localVersion) <= 0) {
+      return
+    }
+
+    const latestCachePath = join(homedir(), ".cache", "opencode", "packages", `${PACKAGE_NAME}@latest`)
+    rmSync(latestCachePath, { recursive: true, force: true })
+
+    removeLatestPluginMetaEntries(meta)
+    writeFileSync(PLUGIN_META_PATH, JSON.stringify(meta, null, 2), "utf8")
+  } catch {}
+}
+
 function resolveSettings(options) {
   const mode = normalizeMode(options?.mode)
   const logEnabled = parseBoolean(options?.logEnabled, false)
@@ -62,6 +95,111 @@ function resolveSettings(options) {
     toolMaxLines,
     toolMaxChars,
   }
+}
+
+function loadCurrentVersion() {
+  try {
+    const pkg = JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8"))
+    return typeof pkg?.version === "string" ? pkg.version : ""
+  } catch {
+    return ""
+  }
+}
+
+function loadPluginMeta() {
+  try {
+    const meta = JSON.parse(readFileSync(PLUGIN_META_PATH, "utf8"))
+    return isRecord(meta) ? meta : {}
+  } catch {
+    return {}
+  }
+}
+
+function hasLatestPluginMetaEntry(meta) {
+  return Object.values(meta).some((entry) => isLatestPluginMetaEntry(entry))
+}
+
+function removeLatestPluginMetaEntries(meta) {
+  for (const [key, entry] of Object.entries(meta)) {
+    if (isLatestPluginMetaEntry(entry)) {
+      delete meta[key]
+    }
+  }
+}
+
+function isLatestPluginMetaEntry(entry) {
+  return (
+    isRecord(entry) &&
+    entry.spec === PACKAGE_NAME &&
+    entry.requested === "latest" &&
+    typeof entry.target === "string" &&
+    entry.target.includes(`${PACKAGE_NAME}@latest`)
+  )
+}
+
+function shouldCheckLatest(localVersion) {
+  try {
+    const state = JSON.parse(readFileSync(VERSION_CHECK_PATH, "utf8"))
+    const checkedAt = Number(state?.checkedAt || 0)
+    const latestVersion = typeof state?.latestVersion === "string" ? state.latestVersion : ""
+    const currentVersion = typeof state?.currentVersion === "string" ? state.currentVersion : ""
+    if (currentVersion !== localVersion) {
+      return true
+    }
+
+    if (!checkedAt || Date.now() - checkedAt >= VERSION_CHECK_INTERVAL_MS) {
+      return true
+    }
+
+    return compareVersions(latestVersion, localVersion) > 0
+  } catch {
+    return true
+  }
+}
+
+function recordVersionCheck(currentVersion, latestVersion) {
+  try {
+    writeFileSync(
+      VERSION_CHECK_PATH,
+      JSON.stringify({ checkedAt: Date.now(), currentVersion, latestVersion }, null, 2),
+      "utf8",
+    )
+  } catch {}
+}
+
+async function fetchLatestVersion() {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 3000)
+    const response = await fetch(`https://registry.npmjs.org/${PACKAGE_NAME}/latest`, {
+      signal: controller.signal,
+      headers: { accept: "application/json" },
+    })
+    clearTimeout(timer)
+    if (!response.ok) {
+      return ""
+    }
+
+    const payload = await response.json()
+    return typeof payload?.version === "string" ? payload.version : ""
+  } catch {
+    return ""
+  }
+}
+
+function compareVersions(left, right) {
+  const leftParts = String(left || "").split(".").map((part) => Number(part) || 0)
+  const rightParts = String(right || "").split(".").map((part) => Number(part) || 0)
+  const length = Math.max(leftParts.length, rightParts.length)
+
+  for (let i = 0; i < length; i++) {
+    const diff = (leftParts[i] || 0) - (rightParts[i] || 0)
+    if (diff !== 0) {
+      return diff
+    }
+  }
+
+  return 0
 }
 
 function resolveLogPath(value) {
