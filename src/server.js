@@ -1,10 +1,12 @@
-import { readFileSync, rmSync, writeFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { homedir } from "node:os"
 import { fileURLToPath } from "node:url"
 
 const DEFAULT_LOG_PATH = join(homedir(), "opencode-llm.log")
 const STATS_PATH = join(homedir(), ".config", "opencode", "snip-stats.json")
+const CONFIG_PATH = join(homedir(), ".config", "opencode", "opencode.json")
+const TUI_CONFIG_PATH = join(homedir(), ".config", "opencode", "tui.json")
 const PLUGIN_META_PATH = join(homedir(), ".local", "state", "opencode", "plugin-meta.json")
 const VERSION_CHECK_PATH = join(homedir(), ".local", "state", "opencode", "snip-version-check.json")
 const PACKAGE_NAME = "opencode-plugin-snip"
@@ -64,7 +66,7 @@ export default async function SnipServerPlugin(_input, options) {
 async function maybeRefreshLatestCache() {
   try {
     const meta = loadPluginMeta()
-    if (!hasLatestPluginMetaEntry(meta)) {
+    if (!hasManagedPluginMetaEntry(meta)) {
       return
     }
 
@@ -79,10 +81,9 @@ async function maybeRefreshLatestCache() {
       return
     }
 
-    const latestCachePath = join(homedir(), ".cache", "opencode", "packages", `${PACKAGE_NAME}@latest`)
-    rmSync(latestCachePath, { recursive: true, force: true })
+    pinPluginVersionInConfig(latestVersion)
 
-    removeLatestPluginMetaEntries(meta)
+    removeManagedPluginMetaEntries(meta)
     writeFileSync(PLUGIN_META_PATH, JSON.stringify(meta, null, 2), "utf8")
   } catch {}
 }
@@ -108,6 +109,30 @@ function loadCurrentVersion() {
   }
 }
 
+function pinPluginVersionInConfig(version) {
+  const pinnedSpec = `${PACKAGE_NAME}@${version}`
+  updateJsonFile(CONFIG_PATH, (config) => {
+    const next = isRecord(config) ? { ...config } : {}
+    const plugins = Array.isArray(next.plugin) ? next.plugin : []
+    next.plugin = plugins.map((entry) => {
+      if (!Array.isArray(entry) || entry.length < 2) {
+        return entry
+      }
+
+      const [spec, pluginOptions] = entry
+      return isPackageSpec(spec) ? [pinnedSpec, pluginOptions] : entry
+    })
+    return next
+  })
+
+  updateJsonFile(TUI_CONFIG_PATH, (config) => {
+    const next = isRecord(config) ? { ...config } : {}
+    const plugins = Array.isArray(next.plugin) ? next.plugin : []
+    next.plugin = plugins.map((entry) => (isPackageSpec(entry) ? pinnedSpec : entry))
+    return next
+  })
+}
+
 function loadPluginMeta() {
   try {
     const meta = JSON.parse(readFileSync(PLUGIN_META_PATH, "utf8"))
@@ -117,25 +142,36 @@ function loadPluginMeta() {
   }
 }
 
-function hasLatestPluginMetaEntry(meta) {
-  return Object.values(meta).some((entry) => isLatestPluginMetaEntry(entry))
+function updateJsonFile(filePath, transform) {
+  try {
+    const current = JSON.parse(readFileSync(filePath, "utf8"))
+    const next = transform(current)
+    writeFileSync(filePath, JSON.stringify(next, null, 2), "utf8")
+  } catch {}
 }
 
-function removeLatestPluginMetaEntries(meta) {
+function isPackageSpec(value) {
+  return typeof value === "string" && (value === PACKAGE_NAME || value.startsWith(`${PACKAGE_NAME}@`))
+}
+
+function hasManagedPluginMetaEntry(meta) {
+  return Object.values(meta).some((entry) => isManagedPluginMetaEntry(entry))
+}
+
+function removeManagedPluginMetaEntries(meta) {
   for (const [key, entry] of Object.entries(meta)) {
-    if (isLatestPluginMetaEntry(entry)) {
+    if (isManagedPluginMetaEntry(entry)) {
       delete meta[key]
     }
   }
 }
 
-function isLatestPluginMetaEntry(entry) {
+function isManagedPluginMetaEntry(entry) {
   return (
     isRecord(entry) &&
-    entry.spec === PACKAGE_NAME &&
-    entry.requested === "latest" &&
+    isPackageSpec(entry.spec) &&
     typeof entry.target === "string" &&
-    entry.target.includes(`${PACKAGE_NAME}@latest`)
+    entry.target.includes(`${PACKAGE_NAME}@`)
   )
 }
 
