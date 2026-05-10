@@ -59,6 +59,9 @@ In the TUI, the plugin shows a label like this:
 snip max 12.4k
 ```
 
+<img width="310" height="69" alt="image" src="https://github.com/user-attachments/assets/9f0f91a9-be76-4cef-a37b-bd1726576f90" />
+
+
 Meaning:
 
 - `snip` is the plugin label.
