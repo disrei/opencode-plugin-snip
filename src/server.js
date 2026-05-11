@@ -34,15 +34,14 @@ export default async function SnipServerPlugin(_input, options) {
     "experimental.chat.messages.transform": async (_input, output) => {
       const originalMessages = output.messages
       const lastUserMessageIndex = findLastUserMessageIndex(originalMessages)
-      const compressedMessages = originalMessages
-        .map((message, index) =>
+      const compressedEntries = originalMessages.map((message, index) =>
           compressMessage(message, settings, {
             preserveToolOutput: shouldPreserveToolOutput(settings, index, lastUserMessageIndex),
           }),
         )
-        .filter(Boolean)
+      const compressedMessages = compressedEntries.filter(Boolean)
 
-      updateSavedCharsStats(originalMessages, compressedMessages, _input?.sessionID || _input?.session_id)
+      updateSavedCharsStats(originalMessages, compressedEntries, _input?.sessionID || _input?.session_id)
 
       output.messages = compressedMessages
 
@@ -289,12 +288,14 @@ function updateSavedCharsStats(originalMessages, compressedMessages, hookSession
   for (let i = 0; i < originalMessages.length; i++) {
     const original = originalMessages[i]
     const compressed = compressedMessages[i]
-    if (!original || !compressed) {
+    if (!original) {
       continue
     }
 
     const key = getMessageKey(original, i)
-    const savedChars = Math.max(0, estimateMessagesSize([original]) - estimateMessagesSize([compressed]))
+    const originalSize = estimateMessagesSize([original])
+    const compressedSize = compressed ? estimateMessagesSize([compressed]) : 0
+    const savedChars = Math.max(0, originalSize - compressedSize)
     const previous = Math.max(0, Number(seen[key]) || 0)
     if (savedChars === previous) {
       continue
@@ -308,12 +309,13 @@ function updateSavedCharsStats(originalMessages, compressedMessages, hookSession
     return
   }
 
+  const nextSavedChars = Math.max(0, (Number(session.savedChars) || 0) + delta)
   const next = {
     version: 2,
     sessions: {
       ...sessions,
       [sessionID]: {
-        savedChars: Math.max(0, (Number(session.savedChars) || 0) + delta),
+        savedChars: nextSavedChars,
         seen,
       },
     },

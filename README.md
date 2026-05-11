@@ -80,6 +80,8 @@ After install, OpenCode patches the relevant config files for you.
 
 Use `--force` even on first install so the same command also works for upgrades. This avoids keeping an older configured plugin version when OpenCode reports the plugin as already configured.
 
+If you previously used a local prototype plugin under `~/.config/opencode/plugins/`, remove old files there before testing the npm package. OpenCode can auto-discover plugins from that directory, and stale files like `log-llm.js` can end up running alongside the npm-installed plugin and overwrite the same stats file.
+
 ### Important: global install
 
 Default behavior:
@@ -167,6 +169,8 @@ TUI side:
 ## Local development
 
 You can also use this package source directly as a local plugin during development.
+
+Do not keep local-source mode and npm-installed mode active at the same time. Pick one path per test run.
 
 Replace `/absolute/path/to/opencode-cashback` with your own local checkout path.
 

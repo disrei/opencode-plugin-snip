@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs"
 import { basename, join } from "node:path"
 import { homedir } from "node:os"
-import { createMemo, createSignal, onCleanup } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import type { TuiPlugin, TuiPluginModule, TuiPluginApi, TuiSlotPlugin } from "@opencode-ai/plugin/tui"
 
 const CONFIG_PATH = join(homedir(), ".config", "opencode", "opencode.json")
@@ -61,6 +61,13 @@ function currentRouteSessionID(api: TuiPluginApi) {
   return typeof sessionID === "string" && sessionID ? sessionID : null
 }
 
+function slotSessionID(value: unknown) {
+  if (!value || typeof value !== "object") return null
+  const sessionID = (value as { session_id?: unknown; sessionID?: unknown }).session_id ??
+    (value as { session_id?: unknown; sessionID?: unknown }).sessionID
+  return typeof sessionID === "string" && sessionID ? sessionID : null
+}
+
 function loadSavedCharsForSession(sessionID: string) {
   try {
     const stats = JSON.parse(readFileSync(STATS_PATH, "utf8"))
@@ -91,12 +98,16 @@ function useCurrentRouteSavedChars(api: TuiPluginApi) {
   return savedChars
 }
 
-function useSessionSavedChars(sessionID: string) {
-  const [savedChars, setSavedChars] = createSignal(loadSavedCharsForSession(sessionID))
+function useSessionSavedChars(getSessionID: () => string) {
+  const [savedChars, setSavedChars] = createSignal(0)
 
-  const timer = setInterval(() => {
-    setSavedChars(loadSavedCharsForSession(sessionID))
-  }, 2000)
+  const update = () => {
+    const sessionID = getSessionID()
+    setSavedChars(sessionID ? loadSavedCharsForSession(sessionID) : 0)
+  }
+
+  createEffect(update)
+  const timer = setInterval(update, 2000)
 
   onCleanup(() => clearInterval(timer))
 
@@ -115,7 +126,7 @@ function HomeLabel(props: { api: TuiPluginApi; label: string }) {
 }
 
 function SessionLabel(props: { api: TuiPluginApi; label: string; sessionID: string }) {
-  const savedChars = useSessionSavedChars(props.sessionID)
+  const savedChars = useSessionSavedChars(() => props.sessionID)
   const text = createMemo(() => {
     props.api.state.session.messages(props.sessionID).length
     props.api.state.session.status(props.sessionID)
@@ -129,11 +140,11 @@ function rightSlot(api: TuiPluginApi, label: string): TuiSlotPlugin {
   return {
     id: "prompt-right",
     slots: {
-      home_prompt_right() {
+      home_prompt_right(_ctx, _value) {
         return <HomeLabel api={api} label={label} />
       },
-      session_prompt_right() {
-        const selectedSessionID = currentRouteSessionID(api) || ""
+      session_prompt_right(_ctx, value) {
+        const selectedSessionID = slotSessionID(value) || currentRouteSessionID(api) || ""
         return <SessionLabel api={api} label={label} sessionID={selectedSessionID} />
       },
     },
