@@ -528,7 +528,7 @@ function formatToolPayload(payload, settings, context) {
   const toolName = payload.tool || payload.name || "unknown"
   const status = payload.state?.status || payload.status || "unknown"
   const output = formatToolOutput(payload.state?.output ?? payload.output)
-  const body = shouldOmitHistoricalToolOutput(settings, context, output) ? summarizeHistoricalToolOutput(output) : output
+  const body = shouldOmitHistoricalToolOutput(settings, context, output) ? summarizeHistoricalToolOutput(output, payload) : output
 
   let result = `[tool:${toolName}][${status}]`
   if (body) {
@@ -553,7 +553,7 @@ function formatToolOutput(output) {
   return stripControlLines(text)
 }
 
-function summarizeHistoricalToolOutput(text) {
+function summarizeHistoricalToolOutput(text, payload) {
   const normalized = String(text || "")
   if (!normalized) {
     return HISTORICAL_TOOL_OUTPUT_OMITTED
@@ -561,7 +561,40 @@ function summarizeHistoricalToolOutput(text) {
 
   const lineCount = normalized.split(/\r?\n/).length
   const charCount = normalized.length
-  return `${HISTORICAL_TOOL_OUTPUT_OMITTED} (${lineCount} lines, ${charCount} chars)`
+  const fileHint = extractToolPayloadHint(payload, normalized)
+  const hintSuffix = fileHint ? `, ${fileHint}` : ""
+  return `${HISTORICAL_TOOL_OUTPUT_OMITTED} (${lineCount} lines, ${charCount} chars${hintSuffix})`
+}
+
+function extractToolPayloadHint(payload, output) {
+  const input = payload?.state?.input ?? payload?.input
+  if (input && typeof input === "object") {
+    const filePath = input.filePath
+    if (typeof filePath === "string" && filePath) {
+      const parts = String(filePath).replace(/\\/g, "/").split("/")
+      return `file: ${parts[parts.length - 1]}`
+    }
+
+    const dirPath = input.path
+    if (typeof dirPath === "string" && dirPath) {
+      const parts = String(dirPath).replace(/\\/g, "/").split("/")
+      return `path: ${parts[parts.length - 1]}`
+    }
+
+    const fileName = input.file
+    if (typeof fileName === "string" && fileName) {
+      const parts = String(fileName).replace(/\\/g, "/").split("/")
+      return `file: ${parts[parts.length - 1]}`
+    }
+  }
+
+  const firstLine = String(output || "").split(/\r?\n/)[0]
+  if (firstLine && firstLine.trim()) {
+    const trimmed = firstLine.trim()
+    return `"${trimmed.length > 80 ? trimmed.slice(0, 80) + "..." : trimmed}"`
+  }
+
+  return null
 }
 
 function shouldOmitHistoricalToolOutput(settings, context, output) {
