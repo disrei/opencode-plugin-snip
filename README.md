@@ -80,6 +80,20 @@ After install, OpenCode patches the relevant config files for you.
 
 Use `--force` even on first install so the same command also works for upgrades. This avoids keeping an older configured plugin version when OpenCode reports the plugin as already configured.
 
+### Upgrades
+
+- The plugin checks npm for newer stable releases in the background.
+- When a newer version is available, it pins your config to that exact version and invalidates the currently loaded package instance.
+- Restart OpenCode to let it load the new version.
+
+Recommended upgrade flow:
+
+```bash
+opencode plugin opencode-plugin-snip --global --force
+```
+
+If OpenCode has already loaded the old version in the current process, restart after the install command so the pinned version is picked up on the next launch.
+
 If you previously used a local prototype plugin under `~/.config/opencode/plugins/`, remove old files there before testing the npm package. OpenCode can auto-discover plugins from that directory, and stale files like `log-llm.js` can end up running alongside the npm-installed plugin and overwrite the same stats file.
 
 ### Important: global install
@@ -144,6 +158,7 @@ The server plugin supports these options:
 The plugin writes per-user runtime data under the OpenCode config directory:
 
 - `~/.config/opencode/snip-stats.json`
+- `~/.local/state/opencode/snip-version-check.json`
 
 Optional log output defaults to:
 

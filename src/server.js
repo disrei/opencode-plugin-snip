@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { basename, dirname, join } from "node:path"
 import { homedir } from "node:os"
 import { fileURLToPath } from "node:url"
 
@@ -21,6 +21,7 @@ const PROTECTED_BLOCK_TAGS = ["system-reminder"]
 const REMOVED_CONTROL_PART_TYPES = new Set(["step-start", "step-finish", "reasoning"])
 
 let cachedSystem = null
+let pendingPackageRemoval = null
 
 export default async function SnipServerPlugin(_input, options) {
   const settings = resolveSettings(options)
@@ -64,11 +65,12 @@ export default async function SnipServerPlugin(_input, options) {
 
 async function maybeRefreshLatestCache() {
   try {
-    const meta = loadPluginMeta()
-    if (!hasManagedPluginMetaEntry(meta)) {
+    const installContext = resolveInstalledPackageContext()
+    if (!installContext) {
       return
     }
 
+    const meta = loadPluginMeta()
     const localVersion = loadCurrentVersion()
     if (!localVersion || !shouldCheckLatest(localVersion)) {
       return
@@ -81,6 +83,7 @@ async function maybeRefreshLatestCache() {
     }
 
     pinPluginVersionInConfig(latestVersion)
+    invalidateInstalledPackageContext(installContext)
 
     removeManagedPluginMetaEntries(meta)
     writeFileSync(PLUGIN_META_PATH, JSON.stringify(meta, null, 2), "utf8")
@@ -143,10 +146,20 @@ function loadPluginMeta() {
 
 function updateJsonFile(filePath, transform) {
   try {
-    const current = JSON.parse(readFileSync(filePath, "utf8"))
+    const current = parseJsonLike(readFileSync(filePath, "utf8"))
     const next = transform(current)
     writeFileSync(filePath, JSON.stringify(next, null, 2), "utf8")
   } catch {}
+}
+
+function parseJsonLike(content) {
+  return JSON.parse(stripJsonCommentsAndTrailingCommas(content))
+}
+
+function stripJsonCommentsAndTrailingCommas(content) {
+  return content
+    .replace(/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g, (match, comment) => (comment ? "" : match))
+    .replace(/,(\s*[}\]])/g, "$1")
 }
 
 function isPackageSpec(value) {
@@ -166,12 +179,132 @@ function removeManagedPluginMetaEntries(meta) {
 }
 
 function isManagedPluginMetaEntry(entry) {
-  return (
-    isRecord(entry) &&
-    isPackageSpec(entry.spec) &&
-    typeof entry.target === "string" &&
-    entry.target.includes(`${PACKAGE_NAME}@`)
-  )
+  return isRecord(entry) && isPackageSpec(entry.spec)
+}
+
+function resolveInstalledPackageContext() {
+  if (basename(PACKAGE_ROOT) !== PACKAGE_NAME) {
+    return null
+  }
+
+  const nodeModulesDir = dirname(PACKAGE_ROOT)
+  if (basename(nodeModulesDir) !== "node_modules") {
+    return null
+  }
+
+  const installRoot = dirname(nodeModulesDir)
+  if (!installRoot || installRoot === nodeModulesDir) {
+    return null
+  }
+
+  return {
+    packageRoot: PACKAGE_ROOT,
+    nodeModulesDir,
+    installRoot,
+    manifestPath: join(installRoot, "package.json"),
+    lockPath: join(installRoot, "bun.lock"),
+  }
+}
+
+function invalidateInstalledPackageContext(context) {
+  let changed = false
+
+  changed = removePackageFromInstallManifest(context.manifestPath) || changed
+  changed = removePackageFromBunLock(context.lockPath) || changed
+
+  // Defer deleting the live package until process shutdown so the current session
+  // can keep using both server and TUI entrypoints safely.
+  changed = schedulePackageRemoval(context.packageRoot) || changed
+
+  return changed
+}
+
+function schedulePackageRemoval(packageRoot) {
+  if (!packageRoot || pendingPackageRemoval === packageRoot) {
+    return false
+  }
+
+  pendingPackageRemoval = packageRoot
+
+  const cleanup = () => {
+    try {
+      if (pendingPackageRemoval && existsSync(pendingPackageRemoval)) {
+        rmSync(pendingPackageRemoval, { recursive: true, force: true })
+      }
+    } catch {}
+  }
+
+  process.once("exit", cleanup)
+  return true
+}
+
+function removePackageFromInstallManifest(filePath) {
+  try {
+    if (!existsSync(filePath)) {
+      return false
+    }
+
+    const manifest = parseJsonLike(readFileSync(filePath, "utf8"))
+    if (!isRecord(manifest)) {
+      return false
+    }
+
+    let changed = false
+    for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+      if (isRecord(manifest[field]) && Object.prototype.hasOwnProperty.call(manifest[field], PACKAGE_NAME)) {
+        delete manifest[field][PACKAGE_NAME]
+        changed = true
+      }
+    }
+
+    if (!changed) {
+      return false
+    }
+
+    writeFileSync(filePath, JSON.stringify(manifest, null, 2), "utf8")
+    return true
+  } catch {
+    return false
+  }
+}
+
+function removePackageFromBunLock(filePath) {
+  try {
+    if (!existsSync(filePath)) {
+      return false
+    }
+
+    const lockfile = parseJsonLike(readFileSync(filePath, "utf8"))
+    if (!isRecord(lockfile)) {
+      return false
+    }
+
+    let changed = false
+    const workspaceDependencies = lockfile?.workspaces?.[""]?.dependencies
+    if (isRecord(workspaceDependencies) && Object.prototype.hasOwnProperty.call(workspaceDependencies, PACKAGE_NAME)) {
+      delete workspaceDependencies[PACKAGE_NAME]
+      changed = true
+    }
+
+    const packages = lockfile.packages
+    if (isRecord(packages)) {
+      for (const key of Object.keys(packages)) {
+        if (key === PACKAGE_NAME || key.startsWith(`${PACKAGE_NAME}@`)) {
+          delete packages[key]
+          changed = true
+        }
+      }
+    }
+
+    if (!changed) {
+      return false
+    }
+
+    writeFileSync(filePath, JSON.stringify(lockfile, null, 2), "utf8")
+    return true
+  } catch {
+    return false
+  }
 }
 
 function shouldCheckLatest(localVersion) {
