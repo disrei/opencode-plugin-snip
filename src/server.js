@@ -35,9 +35,10 @@ export default async function SnipServerPlugin(_input, options) {
     "experimental.chat.messages.transform": async (_input, output) => {
       const originalMessages = output.messages
       const lastUserMessageIndex = findLastUserMessageIndex(originalMessages)
+      const secondLastUserMessageIndex = findSecondLastUserMessageIndex(originalMessages, lastUserMessageIndex)
       const compressedEntries = originalMessages.map((message, index) =>
           compressMessage(message, settings, {
-            preserveToolOutput: shouldPreserveToolOutput(settings, index, lastUserMessageIndex),
+            preserveToolOutput: shouldPreserveToolOutput(settings, index, lastUserMessageIndex, secondLastUserMessageIndex),
           }),
         )
       const compressedMessages = compressedEntries.filter(Boolean)
@@ -547,7 +548,17 @@ function findLastUserMessageIndex(messages) {
   return -1
 }
 
-function shouldPreserveToolOutput(settings, messageIndex, lastUserMessageIndex) {
+function findSecondLastUserMessageIndex(messages, lastUserMessageIndex) {
+  for (let i = lastUserMessageIndex - 1; i >= 0; i--) {
+    if (String(messages[i]?.info?.role || "") === "user") {
+      return i
+    }
+  }
+
+  return -1
+}
+
+function shouldPreserveToolOutput(settings, messageIndex, lastUserMessageIndex, secondLastUserMessageIndex) {
   if (settings.mode !== "max++") {
     return false
   }
@@ -556,7 +567,15 @@ function shouldPreserveToolOutput(settings, messageIndex, lastUserMessageIndex) 
     return true
   }
 
-  return messageIndex > lastUserMessageIndex
+  if (messageIndex > lastUserMessageIndex) {
+    return true
+  }
+
+  if (secondLastUserMessageIndex >= 0 && messageIndex <= secondLastUserMessageIndex) {
+    return true
+  }
+
+  return false
 }
 
 function compressMessage(message, settings, context = {}) {
