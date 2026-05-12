@@ -35,17 +35,11 @@ export default async function SnipServerPlugin(_input, options) {
     "experimental.chat.messages.transform": async (_input, output) => {
       const originalMessages = output.messages
       const lastUserMessageIndex = findLastUserMessageIndex(originalMessages)
-      const secondLastUserMessageIndex = findSecondLastUserMessageIndex(originalMessages, lastUserMessageIndex)
-      const omitHistoricalToolOutput = shouldOmitHistoricalToolOutputs(
-        originalMessages,
-        settings,
-        lastUserMessageIndex,
-        secondLastUserMessageIndex,
-      )
+      const omittedHistoricalToolMessageIndexes = getOmittedHistoricalToolMessageIndexes(originalMessages, settings, lastUserMessageIndex)
       const compressedEntries = originalMessages.map((message, index) =>
           compressMessage(message, settings, {
-            preserveToolOutput: shouldPreserveToolOutput(settings, index, lastUserMessageIndex, secondLastUserMessageIndex),
-            omitHistoricalToolOutput,
+            preserveToolOutput: shouldPreserveToolOutput(settings, index, lastUserMessageIndex),
+            omitHistoricalToolOutput: omittedHistoricalToolMessageIndexes.has(index),
           }),
         )
       const compressedMessages = compressedEntries.filter(Boolean)
@@ -565,17 +559,7 @@ function findLastUserMessageIndex(messages) {
   return -1
 }
 
-function findSecondLastUserMessageIndex(messages, lastUserMessageIndex) {
-  for (let i = lastUserMessageIndex - 1; i >= 0; i--) {
-    if (String(messages[i]?.info?.role || "") === "user") {
-      return i
-    }
-  }
-
-  return -1
-}
-
-function shouldPreserveToolOutput(settings, messageIndex, lastUserMessageIndex, secondLastUserMessageIndex) {
+function shouldPreserveToolOutput(settings, messageIndex, lastUserMessageIndex) {
   if (settings.mode !== "max++") {
     return false
   }
@@ -588,32 +572,47 @@ function shouldPreserveToolOutput(settings, messageIndex, lastUserMessageIndex, 
     return true
   }
 
-  if (secondLastUserMessageIndex >= 0 && messageIndex <= secondLastUserMessageIndex) {
-    return true
-  }
-
   return false
 }
 
-function shouldOmitHistoricalToolOutputs(messages, settings, lastUserMessageIndex, secondLastUserMessageIndex) {
+function getOmittedHistoricalToolMessageIndexes(messages, settings, lastUserMessageIndex) {
   if (settings.mode !== "max++") {
-    return false
+    return new Set()
   }
 
-  let totalChars = 0
+  const omittedIndexes = new Set()
+  const historicalEndIndex = lastUserMessageIndex < 0 ? -1 : lastUserMessageIndex
+  if (historicalEndIndex <= 0) {
+    return omittedIndexes
+  }
 
-  for (let i = 0; i < (messages || []).length; i++) {
-    if (shouldPreserveToolOutput(settings, i, lastUserMessageIndex, secondLastUserMessageIndex)) {
+  let roundStart = 0
+  for (let i = 0; i < historicalEndIndex; i++) {
+    if (String(messages[i]?.info?.role || "") !== "user") {
       continue
     }
 
-    totalChars += getCompressibleToolCharsFromMessage(messages[i])
-    if (totalChars > settings.omitThreshold) {
-      return true
+    const roundEnd = i
+    if (getCompressibleToolCharsForRange(messages, roundStart, roundEnd) > settings.omitThreshold) {
+      for (let j = roundStart; j <= roundEnd; j++) {
+        omittedIndexes.add(j)
+      }
     }
+
+    roundStart = i + 1
   }
 
-  return false
+  return omittedIndexes
+}
+
+function getCompressibleToolCharsForRange(messages, startIndex, endIndex) {
+  let totalChars = 0
+
+  for (let i = startIndex; i <= endIndex; i++) {
+    totalChars += getCompressibleToolCharsFromMessage(messages[i])
+  }
+
+  return totalChars
 }
 
 function getCompressibleToolCharsFromMessage(message) {

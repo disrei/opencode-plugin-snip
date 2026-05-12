@@ -121,7 +121,7 @@ The server plugin supports these options:
 }
 ```
 
-`logEnabled` defaults to `false`. `omitThreshold` controls the cumulative character budget for compressible historical tool output in the round that `max++` is allowed to compact. Once the cumulative total exceeds this value, that round's eligible historical tool output is replaced with placeholders. Defaults to `1500`. Set to `0` to always compact eligible historical tool output.
+`logEnabled` defaults to `false`. `omitThreshold` controls the cumulative character budget for compressible historical tool output within each completed historical round. Once a round's eligible historical tool output exceeds this value, that round's eligible tool output is replaced with placeholders. Defaults to `1500`. Set to `0` to always compact eligible historical tool output.
 
 ### Modes
 
@@ -141,7 +141,8 @@ The server plugin supports these options:
 `max++`
 
 - Same as `max`, but only keeps full tool output after the most recent user message.
-- Older tool results are only replaced when that compressible round's cumulative tool output exceeds `omitThreshold` characters (default `1500`).
+- Each completed historical round is evaluated independently, so old rounds stay stable instead of being re-expanded by later turns.
+- Older tool results are only replaced when that round's cumulative tool output exceeds `omitThreshold` characters (default `1500`).
 - Large historical tool results are retained as lightweight placeholders with status and output-size hints instead of full bodies.
 - Historical tool output that contains `<system-reminder>` is kept intact.
 - Best when old tool output is the main source of prompt bloat.
