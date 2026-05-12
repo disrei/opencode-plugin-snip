@@ -121,7 +121,7 @@ The server plugin supports these options:
 }
 ```
 
-`logEnabled` defaults to `false`. `omitThreshold` controls the cumulative character budget for compressible historical tool output within each completed historical round. Once a round's eligible historical tool output exceeds this value, that round's eligible tool output is replaced with placeholders. Defaults to `1500`. Set to `0` to always compact eligible historical tool output.
+`logEnabled` defaults to `false`. When enabled, the log also includes hashes for the system prompt, original messages, compressed messages, plus which historical rounds were compacted, which is useful for diagnosing prompt-cache misses. `omitThreshold` controls the cumulative character budget for compressible historical tool output within each completed historical round. Once a round's eligible historical tool output exceeds this value, that round's eligible tool output is replaced with placeholders. Defaults to `1500`. Set to `0` to always compact eligible historical tool output.
 
 ### Modes
 

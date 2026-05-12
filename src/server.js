@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { basename, dirname, join } from "node:path"
 import { homedir } from "node:os"
@@ -56,8 +57,17 @@ export default async function SnipServerPlugin(_input, options) {
         settings.logPath,
         buildLogContent({
           system: cachedSystem,
+          originalMessages,
           compressedMessages,
           mode: settings.mode,
+          debugInfo: buildCompressionDebugInfo({
+            system: cachedSystem,
+            originalMessages,
+            compressedMessages,
+            omittedHistoricalToolMessageIndexes,
+            lastUserMessageIndex,
+            omitThreshold: settings.omitThreshold,
+          }),
         }),
         "utf8",
       )
@@ -904,10 +914,78 @@ function updateProtectedTagState(trimmed, currentTag) {
   return null
 }
 
-function buildLogContent({ system, compressedMessages, mode }) {
+function buildCompressionDebugInfo({
+  system,
+  originalMessages,
+  compressedMessages,
+  omittedHistoricalToolMessageIndexes,
+  lastUserMessageIndex,
+  omitThreshold,
+}) {
+  return {
+    systemHash: hashValue(system || []),
+    originalMessagesHash: hashValue(originalMessages || []),
+    compressedMessagesHash: hashValue(compressedMessages || []),
+    lastUserMessageIndex,
+    omitThreshold,
+    omittedHistoricalToolMessageIndexes: [...omittedHistoricalToolMessageIndexes].sort((a, b) => a - b),
+    historicalRounds: getHistoricalRoundDebugRows(
+      originalMessages,
+      omitThreshold,
+      omittedHistoricalToolMessageIndexes,
+      lastUserMessageIndex,
+    ),
+  }
+}
+
+function getHistoricalRoundDebugRows(messages, omitThreshold, omittedIndexes, lastUserMessageIndex) {
+  const rows = []
+  const historicalEndIndex = lastUserMessageIndex < 0 ? -1 : lastUserMessageIndex
+  if (historicalEndIndex <= 0) {
+    return rows
+  }
+
+  let roundStart = 0
+  for (let i = 0; i < historicalEndIndex; i++) {
+    if (String(messages[i]?.info?.role || "") !== "user") {
+      continue
+    }
+
+    const roundEnd = i
+    rows.push({
+      startIndex: roundStart,
+      endIndex: roundEnd,
+      toolChars: getCompressibleToolCharsForRange(messages, roundStart, roundEnd),
+      threshold: omitThreshold,
+      omitted: omittedIndexes.has(roundStart),
+    })
+    roundStart = i + 1
+  }
+
+  return rows
+}
+
+function hashValue(value) {
+  try {
+    return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16)
+  } catch {
+    return "hash-error"
+  }
+}
+
+function buildLogContent({ system, originalMessages, compressedMessages, mode, debugInfo }) {
   const timestamp = new Date().toISOString()
   let content = `=== opencode log at ${timestamp} ===\n`
   content += `compression mode: ${mode}\n`
+
+  if (debugInfo) {
+    content += `system hash: ${debugInfo.systemHash}\n`
+    content += `original messages hash: ${debugInfo.originalMessagesHash}\n`
+    content += `compressed messages hash: ${debugInfo.compressedMessagesHash}\n`
+    content += `last user index: ${debugInfo.lastUserMessageIndex}\n`
+    content += `omitThreshold: ${debugInfo.omitThreshold}\n`
+    content += `omitted historical message indexes: ${JSON.stringify(debugInfo.omittedHistoricalToolMessageIndexes)}\n`
+  }
 
   if (system) {
     content += `\n${"=".repeat(60)}\n`
@@ -918,6 +996,20 @@ function buildLogContent({ system, compressedMessages, mode }) {
       content += system[i] + "\n"
     }
   }
+
+  if (debugInfo) {
+    content += `\n${"=".repeat(60)}\n`
+    content += `[${timestamp}] DEBUG\n`
+    content += "=".repeat(60) + "\n"
+    for (const row of debugInfo.historicalRounds || []) {
+      content += `round ${row.startIndex}-${row.endIndex}: toolChars=${row.toolChars}, threshold=${row.threshold}, omitted=${row.omitted}\n`
+    }
+  }
+
+  content += `\n${"=".repeat(60)}\n`
+  content += `[${timestamp}] ORIGINAL MESSAGES (${originalMessages.length} items)\n`
+  content += "=".repeat(60) + "\n"
+  content += renderMessages(originalMessages)
 
   content += `\n${"=".repeat(60)}\n`
   content += `[${timestamp}] MESSAGES -> LLM (${compressedMessages.length} items)\n`
