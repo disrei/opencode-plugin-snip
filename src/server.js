@@ -36,9 +36,16 @@ export default async function SnipServerPlugin(_input, options) {
       const originalMessages = output.messages
       const lastUserMessageIndex = findLastUserMessageIndex(originalMessages)
       const secondLastUserMessageIndex = findSecondLastUserMessageIndex(originalMessages, lastUserMessageIndex)
+      const omitHistoricalToolOutput = shouldOmitHistoricalToolOutputs(
+        originalMessages,
+        settings,
+        lastUserMessageIndex,
+        secondLastUserMessageIndex,
+      )
       const compressedEntries = originalMessages.map((message, index) =>
           compressMessage(message, settings, {
             preserveToolOutput: shouldPreserveToolOutput(settings, index, lastUserMessageIndex, secondLastUserMessageIndex),
+            omitHistoricalToolOutput,
           }),
         )
       const compressedMessages = compressedEntries.filter(Boolean)
@@ -588,6 +595,70 @@ function shouldPreserveToolOutput(settings, messageIndex, lastUserMessageIndex, 
   return false
 }
 
+function shouldOmitHistoricalToolOutputs(messages, settings, lastUserMessageIndex, secondLastUserMessageIndex) {
+  if (settings.mode !== "max++") {
+    return false
+  }
+
+  let totalChars = 0
+
+  for (let i = 0; i < (messages || []).length; i++) {
+    if (shouldPreserveToolOutput(settings, i, lastUserMessageIndex, secondLastUserMessageIndex)) {
+      continue
+    }
+
+    totalChars += getCompressibleToolCharsFromMessage(messages[i])
+    if (totalChars > settings.omitThreshold) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function getCompressibleToolCharsFromMessage(message) {
+  let totalChars = 0
+
+  for (const part of message?.parts || []) {
+    if (part?.type === "tool") {
+      totalChars += getCompressibleToolCharsFromPayload(part)
+      continue
+    }
+
+    if (part?.type !== "text") {
+      continue
+    }
+
+    const lines = String(part.text || "").split(/\r?\n/)
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith("[tool]")) {
+        continue
+      }
+
+      const match = line.match(/^\s*\[tool\]\s*(.+)$/)
+      if (!match) {
+        continue
+      }
+
+      try {
+        totalChars += getCompressibleToolCharsFromPayload(JSON.parse(match[1]))
+      } catch {}
+    }
+  }
+
+  return totalChars
+}
+
+function getCompressibleToolCharsFromPayload(payload) {
+  const output = formatToolOutput(payload?.state?.output ?? payload?.output)
+  if (!output || SYSTEM_REMINDER_PATTERN.test(output)) {
+    return 0
+  }
+
+  return String(output).length
+}
+
 function compressMessage(message, settings, context = {}) {
   const parts = []
 
@@ -760,7 +831,7 @@ function extractToolPayloadHint(payload, output) {
 }
 
 function shouldOmitHistoricalToolOutput(settings, context, output) {
-  if (settings.mode !== "max++" || context.preserveToolOutput) {
+  if (settings.mode !== "max++" || context.preserveToolOutput || !context.omitHistoricalToolOutput) {
     return false
   }
 
@@ -769,7 +840,7 @@ function shouldOmitHistoricalToolOutput(settings, context, output) {
     return false
   }
 
-  return normalized.length > settings.omitThreshold
+  return normalized.length > 0
 }
 
 function cleanupWhitespace(text) {
