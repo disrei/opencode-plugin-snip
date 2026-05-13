@@ -36,7 +36,8 @@ What you get immediately:
 
 ## Features
 
-- Removes framework control events such as `[step-start]`, `[step-finish]`, and `[reasoning]` when they appear in framework-event form.
+- Removes framework control events such as `[step-start]` and `[step-finish]` when they appear in framework-event form.
+- Removes historical reasoning content in `max++` mode while keeping the current turn's reasoning intact.
 - Preserves non-framework user text that merely contains similar markers.
 - Preserves `<system-reminder>...</system-reminder>` blocks.
 - Normalizes tool output in `max` and `max++` modes.
@@ -134,19 +135,21 @@ The server plugin supports these options:
 `max`
 
 - Default mode.
-- Removes framework noise.
+- Removes framework noise (`step-start`, `step-finish`).
 - Normalizes tool payloads.
+- Keeps reasoning content intact for all rounds.
 - Best general-purpose setting.
 
 `max++`
 
-- Same as `max`, but only keeps full tool output after the most recent user message.
+- Same as `max`, but only keeps full tool output and reasoning after the most recent user message.
 - Each completed historical round is evaluated independently, so old rounds stay stable instead of being re-expanded by later turns.
 - Older tool results are only replaced when that round's cumulative tool output exceeds `omitThreshold` characters (default `1500`).
 - Large historical tool results are retained as lightweight placeholders with status and output-size hints instead of full bodies.
+- Historical reasoning content is removed to save tokens while keeping the current turn's reasoning intact.
 - Historical tool output that contains `<system-reminder>` is kept intact.
-- Best when old tool output is the main source of prompt bloat.
-- Risk: if the model still needs exact details from an older tool result, `max++` can remove information that would otherwise still be available in history.
+- Best when old tool output and reasoning are the main source of prompt bloat.
+- Risk: if the model still needs exact details from an older tool result or previous reasoning chain, `max++` can remove information that would otherwise still be available in history.
 
 ## TUI behavior
 

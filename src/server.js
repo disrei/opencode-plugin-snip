@@ -17,9 +17,9 @@ const HISTORICAL_TOOL_OUTPUT_OMITTED = "[historical-tool-output-omitted]"
 const SYSTEM_REMINDER_PATTERN = /<system-reminder(?:\s|>)/i
 const DEFAULT_OMIT_THRESHOLD_CHARS = 1500
 
-const REMOVED_CONTROL_PREFIXES = ["[step-start]", "[step-finish]", "[reasoning]"]
+const REMOVED_CONTROL_PREFIXES = ["[step-start]", "[step-finish]"]
 const PROTECTED_BLOCK_TAGS = ["system-reminder"]
-const REMOVED_CONTROL_PART_TYPES = new Set(["step-start", "step-finish", "reasoning"])
+const REMOVED_CONTROL_PART_TYPES = new Set(["step-start", "step-finish"])
 
 const pendingSystemsBySession = new Map()
 let pendingPackageRemoval = null
@@ -45,6 +45,7 @@ export default async function SnipServerPlugin(_input, options) {
           compressMessage(message, settings, {
             preserveToolOutput: shouldPreserveToolOutput(settings, index, lastUserMessageIndex),
             omitHistoricalToolOutput: omittedHistoricalToolMessageIndexes.has(index),
+            preserveReasoning: shouldPreserveReasoning(settings, index, lastUserMessageIndex),
           }),
         )
       const compressedMessages = compressedEntries.filter(Boolean)
@@ -607,6 +608,22 @@ function shouldPreserveToolOutput(settings, messageIndex, lastUserMessageIndex) 
   return false
 }
 
+function shouldPreserveReasoning(settings, messageIndex, lastUserMessageIndex) {
+  if (settings.mode !== "max++") {
+    return true
+  }
+
+  if (lastUserMessageIndex < 0) {
+    return true
+  }
+
+  if (messageIndex > lastUserMessageIndex) {
+    return true
+  }
+
+  return false
+}
+
 function getOmittedHistoricalToolMessageIndexes(messages, settings, lastUserMessageIndex) {
   if (settings.mode !== "max++") {
     return new Set()
@@ -705,6 +722,15 @@ function compressMessage(message, settings, context = {}) {
       }
 
       parts.push({ type: "text", text })
+      continue
+    }
+
+    if (part.type === "reasoning") {
+      if (!context.preserveReasoning) {
+        continue
+      }
+
+      parts.push({ ...part })
       continue
     }
 
